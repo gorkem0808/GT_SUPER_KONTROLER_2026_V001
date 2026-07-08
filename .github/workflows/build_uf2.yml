@@ -1,0 +1,56 @@
+name: GT SUPER KONTROLER 2026 V001 UF2 BUILD
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Projeyi al
+        uses: actions/checkout@v4
+
+      - name: ARM derleyici kur
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi build-essential git zip
+
+      - name: Pico SDK indir
+        run: |
+          git clone --depth 1 https://github.com/raspberrypi/pico-sdk.git
+          cd pico-sdk
+          git submodule update --init --recursive
+
+      - name: CMake hazırla
+        run: |
+          cmake -S . -B build -G Ninja -DPICO_SDK_PATH=$PWD/pico-sdk -DPICO_BOARD=pico
+
+      - name: UF2 dosyalarını oluştur
+        run: |
+          cmake --build build
+
+      - name: UF2 paketini hazırla
+        run: |
+          mkdir -p artifact
+
+          cp build/piko1.uf2 artifact/P1_SILAH.uf2
+          cp build/piko2.uf2 artifact/P2_SILAH.uf2
+          cp build/controller.uf2 artifact/CONTROLER.uf2
+
+          cp GT_SUPER_KONTROLER_2026_V001.py artifact/GT_SUPER_KONTROLER_2026_V001.py || true
+          cp GT_SUPER_KONTROLER_2026_V001.bat artifact/GT_SUPER_KONTROLER_2026_V001.bat || true
+          cp 00_PYTHON3_KUR.bat artifact/00_PYTHON3_KUR.bat || true
+          cp requirements.txt artifact/requirements.txt || true
+          cp 00_OKU_BENI.txt artifact/00_OKU_BENI.txt || true
+
+          cd artifact
+          zip -r ../GT_SUPER_KONTROLER_2026_V001_UF2_READY.zip .
+
+      - name: UF2 artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: GT_SUPER_KONTROLER_2026_V001_UF2_READY
+          path: GT_SUPER_KONTROLER_2026_V001_UF2_READY.zip
