@@ -1,0 +1,44 @@
+GT_SUPER KONTROLER 2026 V001 - KISA KURULUM
+
+İletişim / Servis Bilgisi:
+GÖRKEM TURAN
+Telefon / WhatsApp: +995557880008
+
+Kısa Kullanım:
+1) Bu klasörü GitHub deposuna yükle.
+2) Actions sekmesinden build çalıştır.
+3) Artifact ZIP içinden UF2 dosyalarını indir.
+4) UF2 yükleme:
+   controller.uf2 -> Controller Pico
+   piko1.uf2      -> Oyuncu 1 Silah Pico
+   piko2.uf2      -> Oyuncu 2 Silah Pico
+5) Windows programı için GT_SUPER_KONTROLER_2026_V001.bat çalıştır.
+
+Sabit Bağlantı:
+GP2 = Coin / Klavye 1
+GP3 = P1 Start / Klavye 2
+GP4 = P1 Tetik / Klavye 3
+GP5 = P1 Bomba / Klavye 4
+GP6 = P2 Start / Klavye 5
+GP7 = P2 Tetik / Klavye 6
+GP8 = P2 Bomba / Klavye 7
+
+Röle Çalışma Şekli:
+Kredi atılır, start basılır, oyuncu hazır olur.
+Oyuncu hazırken tetik basılırsa röle çeker.
+Tetik bırakılınca röle bırakır.
+Boşta süre dolunca oyuncu pasif olur.
+
+============================================================
+UF2 DOSYA ADLARI
+============================================================
+GitHub Actions build çalışınca artifact içinde şu dosyalar çıkar:
+
+P1_SILAH.uf2   -> Oyuncu 1 Silah Pico
+P2_SILAH.uf2   -> Oyuncu 2 Silah Pico
+CONTROLER.uf2  -> Kontrol Kartı Pico
+
+Yükleme:
+1) Pico BOOTSEL tuşuna basılı tut.
+2) USB kabloyu tak.
+3) RPI-RP2 diski açılınca ilgili UF2 dosyasını içine sürükle bırak.
