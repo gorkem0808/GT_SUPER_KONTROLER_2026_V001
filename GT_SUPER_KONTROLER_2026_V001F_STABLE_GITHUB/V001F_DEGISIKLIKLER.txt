@@ -1,0 +1,46 @@
+GT SUPER KONTROLER 2026 V001F STABLE
+====================================
+
+SABIT PIN / KLAVYE ESLEMESI
+---------------------------
+GP2  = Klavye 1 = Coin
+GP3  = Klavye 2 = P1 Start
+GP4  = Klavye 3 = P1 Tetik
+GP5  = Klavye 4 = P1 Bomba / Reload
+GP6  = Klavye 5 = P2 Start
+GP7  = Klavye 6 = P2 Tetik
+GP8  = Klavye 7 = P2 Bomba / Reload
+GP9  = Klavye 8
+GP10 = Klavye 9
+GP11 = Klavye 0
+
+CONTROLLER PINLERI
+------------------
+GP27 = Role 1
+GP26 = Role 2
+Pinler ve klavye karsiliklari firmware icinde kilitlidir.
+
+P1 / P2 SILAH PICO
+------------------
+GP26 (ADC0) ve GP27 (ADC1) potansiyometre girisidir.
+4 kose kalibrasyon hangi kanalın X/Y oldugunu ve yonlerini otomatik bulur.
+Kalibrasyon Pico flash hafizasina kaydedilir.
+
+GP19 + F5
+---------
+Varsayilan: GP19=1/HIGH ACIK, GP19=0/GND KAPALI.
+Anahtar ters calisirsa programda ilgili oyuncu sekmesinde:
+  1) Anahtari fiziksel KAPALI konuma getir.
+  2) "GP19 KAPALI Konumu Ogret" dugmesine bas.
+Bu ayar Pico flash hafizasina kaydedilir.
+
+F5 fiziksel anahtarin sanal konumunu tersler:
+- Anahtar kapaliyken F5 ile mouse acilir.
+- Anahtar acikken F5 ile mouse kapanir.
+- Tekrar F5 ile eski duruma doner.
+
+TETIK
+-----
+P1/P2 tetik debounce 8 ms yapildi.
+Tetik basma olayi seri porttan aninda programa bildirilir.
+Kalibrasyonda kisa tetik basislari kacirilmaz.
