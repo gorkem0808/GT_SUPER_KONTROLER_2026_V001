@@ -1,0 +1,14 @@
+GT_SUPER KONTROLER 2026 V001D XY FIX
+
+Yapilan tek islevsel degisiklik:
+- 4 kose kalibrasyonda GP26/GP27 X-Y ekseni otomatik tespit edilir.
+- Gerekirse X/Y otomatik yer degistirir.
+- X ve Y ters yonleri otomatik belirlenir.
+- Sonuc P1/P2 Pico flash hafizasina kaydedilir.
+
+Degismeyenler:
+- GP pinleri
+- Klavye 1-7 karsiliklari
+- Kredi / Start / Tetik / Role mantigi
+- GP19
+- Program temasi
