@@ -17,7 +17,8 @@
 #define SLOT0_OFFSET FLASH_TARGET_OFFSET
 #define SLOT1_OFFSET (FLASH_TARGET_OFFSET + FLASH_SECTOR_SIZE)
 #define MAX_LINE 128
-#define GORKEM_MOUSE_MARKER 0xD5u /* V002M: eski bozuk mouse/kalibrasyon flash kaydini gecersiz say */
+#define GORKEM_MOUSE_MARKER 0xE7u /* V001D: GP19 kilit + otomatik X/Y kalibrasyon */
+#define GORKEM_MOUSE_FW_TAG "V001E_XY_GP19_FIX"
 
 typedef struct __attribute__((packed)) {
     uint8_t buttons;
@@ -33,6 +34,7 @@ static char rx_line[MAX_LINE];
 static uint32_t rx_len = 0;
 
 static void cfg_save(void);
+static void gp19_lock_fixed_mapping(void);
 
 static uint32_t crc32_calc(const uint8_t *data, size_t len) {
     uint32_t crc = 0xFFFFFFFFu;
@@ -41,6 +43,25 @@ static uint32_t crc32_calc(const uint8_t *data, size_t len) {
         for (int j = 0; j < 8; j++) crc = (crc >> 1) ^ (0xEDB88320u & (-(int32_t)(crc & 1u)));
     }
     return ~crc;
+}
+
+
+static void gp19_lock_fixed_mapping(void) {
+    /* V001E GP19 MANTIGI:
+       GP19 her zaman fiziksel aktif/pasif anahtaridir.
+       GP19 LOW / GND = mouse PASIF.
+       GP19 HIGH / acikta (dahili pull-up) = mouse AKTIF.
+       Bu, kullanicinin anahtarinda 0=kapali ve 1=acik mantigina uyar.
+    */
+    cfg.enable_gp = 19;
+    cfg.calibration_gp = GTS_GP_DISABLED;
+    cfg.activity_out_gp = GTS_GP_DISABLED;
+    /* Eski/bozuk kayıtta aynı veya geçersiz ADC kanalı varsa güvenli varsayılana dön. */
+    if (cfg.x_adc > 1 || cfg.y_adc > 1 || cfg.x_adc == cfg.y_adc) {
+        cfg.x_adc = 0;
+        cfg.y_adc = 1;
+    }
+    cfg.reserved[0] = GORKEM_MOUSE_MARKER;
 }
 
 static void cfg_defaults(void) {
@@ -64,7 +85,7 @@ static void cfg_defaults(void) {
     cfg.y_min = 200;
     cfg.y_max = 3900;
     cfg.edge_left = 0; cfg.edge_right = 0; cfg.edge_top = 0; cfg.edge_bottom = 0;
-    cfg.reserved[0] = GORKEM_MOUSE_MARKER;
+    gp19_lock_fixed_mapping();
     cfg.crc32 = 0;
     cfg.crc32 = crc32_calc((uint8_t*)&cfg, sizeof(cfg));
 }
@@ -92,11 +113,12 @@ static void cfg_load(void) {
     else if (bv) cfg = *b;
     else { cfg_defaults(); had_valid = false; }
     cfg.player_num = PLAYER_NUM;
-    cfg.reserved[0] = GORKEM_MOUSE_MARKER;
+    gp19_lock_fixed_mapping();
     if (!had_valid) cfg_save();
 }
 
 static void cfg_save(void) {
+    gp19_lock_fixed_mapping();
     cfg.magic = GTS_MAGIC;
     cfg.version = GTS_CFG_VERSION;
     cfg.size = sizeof(cfg);
@@ -128,11 +150,22 @@ static uint16_t adc_read_ch(uint8_t ch) {
     return adc_read();
 }
 
+static void reset_axis_filters(void) {
+    /* X/Y ADC eşlemesi değiştiğinde eski kanalın filtre değerleri kalmasın. */
+    uint16_t x = adc_read_ch(cfg.x_adc);
+    uint16_t y = adc_read_ch(cfg.y_adc);
+    fx = x;
+    fy = y;
+    last_raw_x = x;
+    last_raw_y = y;
+}
+
 static bool valid_gp(uint8_t gp) { return gp <= 28; }
 
 static bool enabled(void) {
-    if (!valid_gp(cfg.enable_gp)) return true;
-    return !gpio_get(cfg.enable_gp); // GP19 DIP switch -> GND aktif: potans/mouse hareketi aktif
+    /* V001E: sadece fiziksel GP19 seviyesine bak.
+       LOW / GND = PASIF, HIGH / pull-up = AKTIF. */
+    return gpio_get(19);
 }
 
 static int16_t map_axis(uint16_t raw, uint16_t mn, uint16_t mx, uint8_t inv, int16_t edge_min, int16_t edge_max) {
@@ -150,53 +183,66 @@ static int16_t map_axis(uint16_t raw, uint16_t mn, uint16_t mx, uint8_t inv, int
 }
 
 static void apply_pins(void) {
-    if (valid_gp(cfg.enable_gp)) { gpio_init(cfg.enable_gp); gpio_set_dir(cfg.enable_gp, GPIO_IN); gpio_pull_up(cfg.enable_gp); }
+    gp19_lock_fixed_mapping();
+    gpio_init(19); gpio_set_dir(19, GPIO_IN); gpio_pull_up(19);
     if (valid_gp(cfg.calibration_gp)) { gpio_init(cfg.calibration_gp); gpio_set_dir(cfg.calibration_gp, GPIO_IN); gpio_pull_up(cfg.calibration_gp); }
     if (valid_gp(cfg.activity_out_gp)) { gpio_init(cfg.activity_out_gp); gpio_set_dir(cfg.activity_out_gp, GPIO_OUT); gpio_put(cfg.activity_out_gp, 0); }
 }
 
 static void send_cfg(void) {
-    char b[360];
-    snprintf(b, sizeof(b), "CFG,MOUSE,P%u,V002M_TITRESIM_AZALT,SEQ,%lu,XMIN,%u,XMAX,%u,YMIN,%u,YMAX,%u,INVX,%u,INVY,%u,FILTER,%u,THR,%u,ENABLE_GP,%u,CAL_GP,%u,ACTOUT_GP,%u,EDGE_L,%d,EDGE_R,%d,EDGE_T,%d,EDGE_B,%d\n",
-             PLAYER_NUM, cfg.seq, cfg.x_min, cfg.x_max, cfg.y_min, cfg.y_max, cfg.invert_x, cfg.invert_y, cfg.filter_shift,
+    char b[420];
+    snprintf(b, sizeof(b), "CFG,MOUSE,P%u,%s,SEQ,%lu,XADC,%u,YADC,%u,XMIN,%u,XMAX,%u,YMIN,%u,YMAX,%u,INVX,%u,INVY,%u,FILTER,%u,THR,%u,ENABLE_GP,%u,CAL_GP,%u,ACTOUT_GP,%u,EDGE_L,%d,EDGE_R,%d,EDGE_T,%d,EDGE_B,%d\n",
+             PLAYER_NUM, GORKEM_MOUSE_FW_TAG, (unsigned long)cfg.seq, cfg.x_adc, cfg.y_adc,
+             cfg.x_min, cfg.x_max, cfg.y_min, cfg.y_max, cfg.invert_x, cfg.invert_y, cfg.filter_shift,
              cfg.min_move_threshold, cfg.enable_gp, cfg.calibration_gp, cfg.activity_out_gp,
              cfg.edge_left, cfg.edge_right, cfg.edge_top, cfg.edge_bottom);
     cdc_send(b);
 }
 
 static void send_status(uint16_t rx, uint16_t ry, int16_t hx, int16_t hy) {
-    char b[220];
-    snprintf(b, sizeof(b), "STATUS,MOUSE,P%u,V002M,RAW,%u,%u,HID,%d,%d,ACTIVE,%u,DIP19,%u,CALBTN,%u,CAL,%u,%u,%u,%u,FILTER,%u\n",
-             PLAYER_NUM, rx, ry, hx, hy, enabled(), valid_gp(cfg.enable_gp) ? !gpio_get(cfg.enable_gp) : 1, valid_gp(cfg.calibration_gp) ? !gpio_get(cfg.calibration_gp) : 0, cfg.x_min, cfg.x_max, cfg.y_min, cfg.y_max, cfg.filter_shift);
+    char b[280];
+    snprintf(b, sizeof(b), "STATUS,MOUSE,P%u,%s,RAW,%u,%u,HID,%d,%d,XADC,%u,YADC,%u,ACTIVE,%u,DIP19,%u,CALBTN,%u,CAL,%u,%u,%u,%u,FILTER,%u\n",
+             PLAYER_NUM, GORKEM_MOUSE_FW_TAG, rx, ry, hx, hy, cfg.x_adc, cfg.y_adc,
+             enabled(), gpio_get(19), valid_gp(cfg.calibration_gp) ? !gpio_get(cfg.calibration_gp) : 0,
+             cfg.x_min, cfg.x_max, cfg.y_min, cfg.y_max, cfg.filter_shift);
     cdc_send(b);
 }
 
 static void handle_set(char *key, char *val) {
     int v = atoi(val);
-    if (!strcmp(key,"XMIN")) cfg.x_min = v;
+    bool axis_changed = false;
+    if (!strcmp(key,"XADC")) { cfg.x_adc = (v == 1) ? 1 : 0; axis_changed = true; }
+    else if (!strcmp(key,"YADC")) { cfg.y_adc = (v == 1) ? 1 : 0; axis_changed = true; }
+    else if (!strcmp(key,"XMIN")) cfg.x_min = v;
     else if (!strcmp(key,"XMAX")) cfg.x_max = v;
     else if (!strcmp(key,"YMIN")) cfg.y_min = v;
     else if (!strcmp(key,"YMAX")) cfg.y_max = v;
-    else if (!strcmp(key,"INVX")) cfg.invert_x = v;
-    else if (!strcmp(key,"INVY")) cfg.invert_y = v;
+    else if (!strcmp(key,"INVX")) cfg.invert_x = v ? 1 : 0;
+    else if (!strcmp(key,"INVY")) cfg.invert_y = v ? 1 : 0;
     else if (!strcmp(key,"FILTER")) cfg.filter_shift = (v > 7) ? 7 : v;
     else if (!strcmp(key,"THR")) cfg.min_move_threshold = v;
-    else if (!strcmp(key,"ENABLE_GP")) cfg.enable_gp = v;
+    else if (!strcmp(key,"ENABLE_GP")) cfg.enable_gp = 19; /* GP19 sabit kilit */
     else if (!strcmp(key,"CAL_GP")) cfg.calibration_gp = v;
-    else if (!strcmp(key,"ACTOUT_GP")) cfg.activity_out_gp = GTS_GP_DISABLED; /* V002M: kaldırıldı */
+    else if (!strcmp(key,"ACTOUT_GP")) cfg.activity_out_gp = GTS_GP_DISABLED;
     else if (!strcmp(key,"EDGE_L")) cfg.edge_left = v;
     else if (!strcmp(key,"EDGE_R")) cfg.edge_right = v;
     else if (!strcmp(key,"EDGE_T")) cfg.edge_top = v;
     else if (!strcmp(key,"EDGE_B")) cfg.edge_bottom = v;
+    gp19_lock_fixed_mapping();
     apply_pins();
+    if (axis_changed) reset_axis_filters();
 }
 
 static void handle_line(char *line) {
     if (!strcmp(line,"HELLO") || !strcmp(line,"GETCFG")) {
-        char h[64]; snprintf(h, sizeof(h), "HELLO,MOUSE,P%u,V002M_TITRESIM_AZALT\n", PLAYER_NUM); cdc_send(h); send_cfg(); return;
+        char h[72];
+        snprintf(h, sizeof(h), "HELLO,MOUSE,P%u,%s\n", PLAYER_NUM, GORKEM_MOUSE_FW_TAG);
+        cdc_send(h);
+        send_cfg();
+        return;
     }
     if (!strcmp(line,"SAVE")) { cfg_save(); cdc_send("OK,SAVED\n"); return; }
-    if (!strcmp(line,"FACTORY")) { cfg_defaults(); cfg_save(); apply_pins(); cdc_send("OK,FACTORY\n"); return; }
+    if (!strcmp(line,"FACTORY")) { cfg_defaults(); cfg_save(); apply_pins(); reset_axis_filters(); cdc_send("OK,FACTORY\n"); return; }
     if (!strncmp(line,"SET,",4)) {
         char *k = line + 4;
         char *v = strchr(k, ',');
@@ -204,10 +250,48 @@ static void handle_line(char *line) {
         else cdc_send("ERR,SET\n");
         return;
     }
+    /*
+       Yeni atomik kalibrasyon komutu:
+       CALXY,xadc,yadc,xmin,xmax,ymin,ymax,invx,invy
+       Böylece X/Y kanalı, yönler ve sınırlar tek seferde kaydedilir.
+    */
+    if (!strncmp(line,"CALXY,",6)) {
+        int xadc,yadc,xmin,xmax,ymin,ymax,invx,invy;
+        int n = sscanf(line+6, "%d,%d,%d,%d,%d,%d,%d,%d",
+                       &xadc,&yadc,&xmin,&xmax,&ymin,&ymax,&invx,&invy);
+        bool valid = (n == 8) &&
+                     (xadc >= 0 && xadc <= 1) &&
+                     (yadc >= 0 && yadc <= 1) &&
+                     (xadc != yadc) &&
+                     (xmin >= 0 && xmax <= 4095 && xmax > xmin) &&
+                     (ymin >= 0 && ymax <= 4095 && ymax > ymin) &&
+                     (invx == 0 || invx == 1) &&
+                     (invy == 0 || invy == 1);
+        if (valid) {
+            cfg.x_adc = (uint8_t)xadc;
+            cfg.y_adc = (uint8_t)yadc;
+            cfg.x_min = (uint16_t)xmin;
+            cfg.x_max = (uint16_t)xmax;
+            cfg.y_min = (uint16_t)ymin;
+            cfg.y_max = (uint16_t)ymax;
+            cfg.invert_x = (uint8_t)invx;
+            cfg.invert_y = (uint8_t)invy;
+            reset_axis_filters();
+            cfg_save();
+            cdc_send("OK,CALXY,SAVED\n");
+        } else {
+            cdc_send("ERR,CALXY\n");
+        }
+        return;
+    }
+    /* Eski CAL komutu geriye uyumluluk için korunur. */
     if (!strncmp(line,"CAL,",4)) {
         int xmin,xmax,ymin,ymax;
         if (sscanf(line+4, "%d,%d,%d,%d", &xmin,&xmax,&ymin,&ymax) == 4) {
-            cfg.x_min=xmin; cfg.x_max=xmax; cfg.y_min=ymin; cfg.y_max=ymax; cfg_save(); cdc_send("OK,CAL,SAVED\n");
+            cfg.x_min=xmin; cfg.x_max=xmax; cfg.y_min=ymin; cfg.y_max=ymax;
+            reset_axis_filters();
+            cfg_save();
+            cdc_send("OK,CAL,SAVED\n");
         } else cdc_send("ERR,CAL\n");
         return;
     }
@@ -235,9 +319,7 @@ int main(void) {
     cfg_load();
     apply_pins();
 
-    fx = adc_read_ch(cfg.x_adc);
-    fy = adc_read_ch(cfg.y_adc);
-    last_raw_x = fx; last_raw_y = fy;
+    reset_axis_filters();
 
     while (true) {
         tud_task();

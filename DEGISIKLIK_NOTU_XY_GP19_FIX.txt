@@ -1,0 +1,12 @@
+GT_SUPER KONTROLER 2026 V001E XY + GP19 FIX
+
+Duzeltilen:
+- GP19 LOW/GND (0) iken silah mouse PASIF.
+- GP19 HIGH/pull-up (1) iken silah mouse AKTIF.
+- X/Y otomatik tespit, swap ve ters yon kalibrasyonu korunur.
+
+Degismeyenler:
+- GP2-GP8 pinleri
+- Klavye 1-7 karsiliklari
+- Controller kredi/start/tetik/role mantigi
+- Program temasi

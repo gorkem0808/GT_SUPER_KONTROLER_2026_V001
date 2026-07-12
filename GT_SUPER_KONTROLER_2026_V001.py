@@ -506,7 +506,7 @@ GT_SUPER KONTROLER 2026 V001 ana kurallar:
 
 1) Program adı: GT_SUPER KONTROLER 2026 V001. ZIP sade tutuldu; gereksiz dosya yok.
 2) P1/P2 silah Pico'lar Controller Pico'ya fiziksel bağlı değildir.
-3) P1/P2 silah Pico üzerinde GP19 DIP switch vardır: GP19 GND olursa mouse/potans aktif, açıkta kalırsa pasif.
+3) P1/P2 silah Pico üzerinde GP19 anahtar vardır: GP19 LOW/GND olursa mouse pasif, HIGH/açıkta olursa aktif.
 4) GP2 = klavye 1 / Coin.
 5) GP3 = klavye 2 / Player 1 Start.
 6) GP4 = klavye 3 / Player 1 Tetik.
@@ -803,22 +803,86 @@ GT_SUPER KONTROLER 2026 V001 ana kurallar:
 
     def write_mouse_cal(self, player):
         cap = self.capture[player]
-        if not all(k in cap for k in ["LU","RU","RD","LD"]):
+        if not all(k in cap for k in ["LU", "RU", "RD", "LD"]):
             messagebox.showwarning("Eksik", "4 köşeyi de sırayla onayla.")
             return
-        xs = [cap[k][0] for k in cap]
-        ys = [cap[k][1] for k in cap]
-        xmin, xmax = min(xs), max(xs)
-        ymin, ymax = min(ys), max(ys)
-        self.mouse_vars[player]["XMIN"].set(str(xmin)); self.mouse_vars[player]["XMAX"].set(str(xmax))
-        self.mouse_vars[player]["YMIN"].set(str(ymin)); self.mouse_vars[player]["YMAX"].set(str(ymax))
+
+        # Her RAW sütununun yatay ve dikey harekete ne kadar cevap verdiğini ölç.
+        # Böylece GP26/GP27 fiziksel olarak çapraz bağlanmış olsa da X ve Y otomatik bulunur.
+        lu, ru, rd, ld = cap["LU"], cap["RU"], cap["RD"], cap["LD"]
+        h0 = ((ru[0] + rd[0]) - (lu[0] + ld[0])) / 2.0
+        v0 = ((rd[0] + ld[0]) - (lu[0] + ru[0])) / 2.0
+        h1 = ((ru[1] + rd[1]) - (lu[1] + ld[1])) / 2.0
+        v1 = ((rd[1] + ld[1]) - (lu[1] + ru[1])) / 2.0
+
+        normal_score = abs(h0) + abs(v1)  # RAW-0 = X, RAW-1 = Y
+        swap_score = abs(h1) + abs(v0)    # RAW-1 = X, RAW-0 = Y
+        swap_axes = swap_score > normal_score
+        x_index, y_index = (1, 0) if swap_axes else (0, 1)
+
         d = self.get_dev(player)
+        current_x_adc, current_y_adc = 0, 1
+        if d and d.last_status:
+            current_x_adc = self._status_value(d.last_status, "XADC", 0)
+            current_y_adc = self._status_value(d.last_status, "YADC", 1)
+        current_channels = [current_x_adc, current_y_adc]
+        new_x_adc = current_channels[x_index]
+        new_y_adc = current_channels[y_index]
+
+        # Güvenlik: iki eksen hiçbir zaman aynı ADC kanalına atanmasın.
+        if new_x_adc == new_y_adc or new_x_adc not in (0, 1) or new_y_adc not in (0, 1):
+            new_x_adc, new_y_adc = (1, 0) if swap_axes else (0, 1)
+
+        x_values = [cap[k][x_index] for k in ["LU", "RU", "RD", "LD"]]
+        y_values = [cap[k][y_index] for k in ["LU", "RU", "RD", "LD"]]
+        xmin, xmax = min(x_values), max(x_values)
+        ymin, ymax = min(y_values), max(y_values)
+
+        horizontal_delta = (h1 if x_index == 1 else h0)
+        vertical_delta = (v1 if y_index == 1 else v0)
+        invx = 1 if horizontal_delta < 0 else 0
+        invy = 1 if vertical_delta < 0 else 0
+
+        if (xmax - xmin) < 50 or (ymax - ymin) < 50:
+            messagebox.showwarning(
+                "Kalibrasyon hareketi yetersiz",
+                "X veya Y hareket aralığı çok küçük okundu. 4 köşeyi daha belirgin gösterip tekrar kalibre et.",
+            )
+            return
+
+        self.mouse_vars[player]["XMIN"].set(str(xmin))
+        self.mouse_vars[player]["XMAX"].set(str(xmax))
+        self.mouse_vars[player]["YMIN"].set(str(ymin))
+        self.mouse_vars[player]["YMAX"].set(str(ymax))
+        self.mouse_vars[player]["INVX"].set(str(invx))
+        self.mouse_vars[player]["INVY"].set(str(invy))
+
+        log = getattr(self, f"{player}_log", None)
+        if log:
+            durum = "X/Y değiştirildi" if swap_axes else "X/Y sırası doğru"
+            log.insert(
+                "end",
+                f"Otomatik eksen sonucu: {durum}; X=ADC{new_x_adc} Y=ADC{new_y_adc}; "
+                f"X ters={invx}, Y ters={invy}\n",
+            )
+            log.see("end")
+
         if d:
-            d.send(f"CAL,{xmin},{xmax},{ymin},{ymax}")
-            time.sleep(0.08)
-            d.send("SAVE")
-        self.save_local(f"{player} sıralı kalibrasyon yazıldı")
-        messagebox.showinfo("Tamam", f"{player} 4 köşe kalibrasyon tamamlandı, cihaza yazıldı ve hafızaya kaydedildi.")
+            # Kanal, sınır ve yönleri tek komutta yazar; Pico flash hafızasına da kaydeder.
+            d.send(
+                f"CALXY,{new_x_adc},{new_y_adc},{xmin},{xmax},{ymin},{ymax},{invx},{invy}"
+            )
+            time.sleep(0.15)
+            d.send("GETCFG")
+
+        self.save_local(f"{player} otomatik X/Y kalibrasyonu yazıldı")
+        sonuc = "X/Y otomatik değiştirildi" if swap_axes else "X/Y otomatik doğrulandı"
+        messagebox.showinfo(
+            "Tamam",
+            f"{player} 4 köşe kalibrasyonu tamamlandı.\n"
+            f"{sonuc}. X=ADC{new_x_adc}, Y=ADC{new_y_adc}.\n"
+            f"Yönler ve sınırlar Pico hafızasına kaydedildi.",
+        )
 
     def _status_value(self, line, key, default=0):
         try:

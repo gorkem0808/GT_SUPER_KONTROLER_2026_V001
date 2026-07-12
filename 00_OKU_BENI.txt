@@ -42,3 +42,58 @@ Yükleme:
 1) Pico BOOTSEL tuşuna basılı tut.
 2) USB kabloyu tak.
 3) RPI-RP2 diski açılınca ilgili UF2 dosyasını içine sürükle bırak.
+
+
+============================================================
+V001E GP19 ACIK/KAPALI DUZELTMESI
+============================================================
+Bu surumde P1 ve P2 silah Pico icin GP19 kesin kilitlendi.
+Eski kayitlarda ENABLE_GP 255 veya farkli deger kalmis olsa bile dikkate alinmaz.
+
+GP19 LOW / GND olursa       = mouse/potans PASIF
+GP19 HIGH / acikta kalirsa = mouse/potans AKTIF
+
+Test:
+- GP19 LOW/GND iken ACTIVE 0 / DIP19 0 gorunmeli ve silah imleci hareket etmemeli.
+- GP19 HIGH/acikta iken ACTIVE 1 / DIP19 1 gorunmeli ve silah imleci hareket etmeli.
+
+Bu duzeltme icin P1_SILAH.uf2 ve P2_SILAH.uf2 mutlaka yeniden yuklenmelidir.
+
+NOT: GT_SUPER_KONTROLER_2026_V001.bat dosyası, gönderilen örnek BAT dosyasıyla birebir aynı mantıkta ayarlanmıştır.
+
+
+============================================================
+V001D OTOMATIK X/Y EKSEN DUZELTMESI
+============================================================
+Bu paket sadece X/Y ekseni kalibrasyonunu duzeltir.
+
+Degismeyenler:
+- GP2-GP8 pinleri ve klavye 1-7 karsiliklari aynidir.
+- Controller, kredi, start, tetik ve role mantigi aynidir.
+- GP19 aktif/pasif anahtari aynidir.
+- Program temasi ve diger ayarlar aynidir.
+
+Yeni kalibrasyon:
+1) P1 veya P2 Kalibrasyon sekmesinde Kalibrasyona Baslat.
+2) Sol Ust, Sag Ust, Sag Alt, Sol Alt sirasiyla tetik/mouse ile onayla.
+3) Program GP26 ve GP27'den hangisinin X, hangisinin Y oldugunu otomatik bulur.
+4) X/Y caprazsa otomatik degistirir; ters yonleri de otomatik belirler.
+5) Sonuc ilgili Pico'nun flash hafizasina kaydedilir.
+
+GitHub Actions sonunda:
+P1_SILAH.uf2  -> Oyuncu 1 Silah Pico
+P2_SILAH.uf2  -> Oyuncu 2 Silah Pico
+CONTROLER.uf2 -> Kontrol Karti Pico
+
+Not: X/Y degisikligi silah Pico firmware'indedir. Controller mantigi degistirilmemistir.
+
+
+============================================================
+V001E GP19 DUZELTMESI
+============================================================
+Kullanicinin anahtar mantigina gore GP19 seviyesi ters duzeltildi:
+- GP19 = 0 (LOW/GND, anahtar kapali) -> mouse PASIF
+- GP19 = 1 (HIGH/pull-up, anahtar acik) -> mouse AKTIF
+
+X/Y otomatik kalibrasyon V001D ile aynen korunur.
+Controller pinleri, klavye 1-7 karsiliklari ve role mantigi degismemistir.
